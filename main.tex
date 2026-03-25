@@ -1,0 +1,80 @@
+\documentclass{article}
+\usepackage{amsmath, fullpage, listings, xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+
+% SQL syntax highlighting
+\lstdefinestyle{sql}{
+    language=SQL,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue}\bfseries,
+    stringstyle=\color{red},
+    commentstyle=\color{green},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10}
+}
+
+\lstset{style=sql}
+
+\begin{document}
+\title{Project 1: SQL Query Notes}
+\author{Edward Song}
+\maketitle
+\thispagestyle{empty}
+
+\section{Relational Algebra}
+
+\subsection{Projection $(\pi)$}
+All of the operators in relational algebra take a relation (table) as input and produce a relation as output. A basic query looks like this:
+
+\[
+\pi_{name}(dogs)
+\]
+
+The subscript of the $\pi$ operator specifies which columns to select. In this case, the operator takes the \texttt{dogs} relation in as a parameter and returns a relation that only has the \texttt{name} column of \texttt{dogs}.
+
+The relational algebra expression above can be written in SQL as:
+\begin{lstlisting}
+SELECT name FROM dogs;
+\end{lstlisting}
+
+If the dogs relation is initially:
+
+\begin{center}
+\begin{tabular}{|c|c|}
+\hline
+\textbf{name} & \textbf{age} \\
+\hline
+Scooby & 10 \\
+Buster & 15 \\
+Buster & 20 \\
+\hline
+\end{tabular}
+\end{center}
+
+The query above would return:
+\begin{center}
+\begin{tabular}{|c|}
+\hline
+\textbf{name} \\
+\hline
+Scooby \\
+Buster \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Selection $\sigma$}
+The selection operator takes in a single relation and filters based on a certain condition. This operator is equivalent to the \texttt{WHERE} clause.
+
+The query:
+\begin{lstlisting}
+    SELECT name, age FROM dogs WHERE age = 12;
+\end{lstlisting}
+
+Can be expressed as
+
+
+\end{document}
