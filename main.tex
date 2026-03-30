@@ -1,8 +1,8 @@
 \documentclass{article}
-\usepackage{amsmath, fullpage, listings, xcolor}
-\usepackage{booktabs}
+\usepackage{amsmath, fullpage, listings, xcolor, float}\usepackage{booktabs}
 \usepackage{array}
 \usepackage{graphicx}
+\usepackage{algpseudocode}
 
 % SQL syntax highlighting
 \lstdefinestyle{sql}{
@@ -343,7 +343,7 @@ To fix this, before building a hash table out of data in memory, we need to guar
 \subsection{The Algorithm}
 In the following example, we will assume that we have $B = 3$ buffer pages available to us. We also assume that Brian and Eric hash to the same value for the first hash function but different values for the second hash function, and Jamie and Lakshya hash to the same value for the first hash function.
 
-\begin{figure}[h]
+\begin{figure}[H]
     \centering
     \includegraphics[width=0.8\linewidth]{images/Hashing.png}
     \caption{After the first partitioning pass (Partitioning Pass 1), Partition 0 is 4 pages, and Partition 1 is 2 pages. Partition 1 fits in memory, but Partition 0 does not. This means we must recursively partition 0.}
@@ -353,6 +353,414 @@ In the following example, we will assume that we have $B = 3$ buffer pages avail
 1. After Partitioning Pass 2, Partition 0 is broken into two parts: Partition 0.a is 2 pages, and Partition 0.b is 2 pages. As Partition 1 already fit into memory, it was not partitioned during Partitioning Pass
 
 2. Once all partitions (0.a, 0.b, 1) fit into memory, we perform the Conquer Pass and build the hash tables. You can see that after the final Conquer Pass, all of the like values are next to each other, which is our end goal.
+
+\subsection{Analysis of External Hashing}
+Unlike external sorting, there's no clean, simple I/O formula for external hashing because partition sizes are unpredictable. 
+
+The I/O formula tracks each pass individually:
+\[
+(\text{sum of all reads + writes across partitioning passes}) + 2X
+\]
+where $X$ is the total number of pages going into the final conquer phase. The $2X$ accounts for reading each page in and writing the finished hash table back out.
+
+\section{Sorting}
+\subsection{Two way external Merge sort}
+Let’s start by developing a sorting algorithm that works but is not as good as possible. Because we cannot keep all of our data in memory at the same time, we we have to sort different pieces separately then merge it together.
+
+In order to merge two lists together efficiently, they must be sorted first, so we start by sorting individual pages.
+
+After this, let’s start merging the pages together using the merge algorithm from merge sort, where we continue merging sorted runs until our data is fully sorted.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{images/merge_sort.png}
+    \caption{Divide and Conquer phases when no recursive partitioning is needed.}
+    \label{fig:placeholder}
+\end{figure}
+
+The analysis of this algorithm is:
+\[
+    2N \cdot \left(1 + \lceil \log_2(N) \rceil \right).
+\]
+
+The number of buffer pages needed for this algorithm is 3. One to store the head of the left list, one to store the head of the right list, and an output buffer.
+
+\subsection{Full external sort}
+Lets assume that we have B buffer pages given to us. Our first optimization will be loading B pages and sorting them all at once rather than just sorting individual pages.
+
+The second optimization is to merge more than 2 sorted runs at a time. We have B buffer frames available to us, but we need 1 for the output buffer. This means that we can have B-1 input buffers and can thus merge together B-1 sorted runs at a time.
+
+Example given that we have 4 buffer frames:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{images/full_external_sort.png}
+    \caption{External hashing with recursive partitioning}
+    \label{fig:placeholder}
+\end{figure}
+
+The analysis of this algorithm is:
+\[
+2N \cdot \left(1 + \left\lceil \log_{B-1}\left(\frac{N}{B}\right) \right\rceil \right)\ \text{I/Os}
+\]
+where N represents the total number of pages in the table being hashed.
+
+\section{Iterators and Joins}
+
+\subsection{Introduction}
+A join combines two relations by finding all pairs of records that satisfy a given condition, producing a new relation with the combined fields of both.
+
+Throughout the examples in the following subsections, we will use two tables, R and S, to illustrate each algorithm.
+
+\subsection{Simple Nested Loop Join}
+
+Let’s start with the simplest strategy possible. We take each record in R, search for all its matches in S, and yield each match.
+
+\begin{figure}[H]    \includegraphics[width=0.3\linewidth]{images/simple_nexted_loop.png}
+    \label{fig:placeholder}
+\end{figure}
+
+However, it's inefficient, with an I/O cost of
+\[
+[R] + |R|[S]
+\]
+where [R] is the number of pages in R, |R| is the number of records in R.
+
+\subsection{Page Nested Loop Join}
+What if we read in every single page in S for every single page of R instead? That is for a page of R, take all records and match them against each record in S.
+
+\begin{figure}[H]    \includegraphics[width=0.3\linewidth]{images/page_nested_loop.png}
+    \label{fig:placeholder}
+\end{figure}
+
+The I/O cost of this is somewhat better:
+\[
+[R] + [R] * [S].
+\]
+
+Page nested Loop join is better than simple nested loop join, but it only utilizes 3 buffer pages. One page for R, one for S, and one for the output buffer.
+
+\subsection{Block Nested Loop Join}
+Block nested loop join fully optimizes our buffer. We reserve $B-2$ pages for $R$ and match $S$ against every record in each "chunk".
+
+\begin{figure}[H]    \includegraphics[width=0.25\linewidth]{images/block_nested_loop.png}
+    \label{fig:placeholder}
+\end{figure}
+
+The I/O cost of this algorithm is
+\[
+[R] + \left\lceil \frac{[R]}{B-2} \right\rceil [S].
+\]
+
+\subsection{Index Nested Loop Join}
+There are times, however, when Block Nested Loop Join isn’t the best thing to do. If we have an index on $S$, it can be very fast to look up matches of $r_i$ in $S$.
+
+\begin{figure}[H]
+    \includegraphics[width=0.5\linewidth]{images/index_nested_loop.png}
+    \label{fig:placeholder}
+\end{figure}
+
+The I/O cost of this is:
+\[
+[R] + |R| * (\text{cost to look up matching records in $S$})
+\]
+
+The cost to look up matching records in S will differ based on the type of index (alternative 1, 2, 3 and unclustered vs. clustered).
+
+\subsection{Hash Join}
+\subsubsection{Naive hash join}
+Hash tables are really good for this because they find matches really quickly. The algorithm works like this:
+\begin{enumerate}
+    \item Build an in-memory hash table from all of R's records
+    \item For each record in S, look it up in the hash table to find matches
+\end{enumerate}
+The I/Os cost is only 
+\[
+    [R] + [S].
+\]
+
+But R has to fit entirely in B - 2 to work.
+
+\subsubsection{Grace Hash Join}
+Grace hash join solves the "$R$ doesn't fit in memory problem". The process is:
+\begin{itemize}
+    \item Partition Phase: Use a hash function to split $R$ and $S$ into $B-1$ smaller buckets. The \textbf{key idea} is that any two records that could possibly match will always land in the same bucket, so you never need to compare records from different buckets.
+    \item Join Phase: Take each matching pair of buckets (bucket 1 of R with bucket 1 of S, bucket 2 of R with bucket 2 of S, etc.) and run a Naive Hash Join on them. Since each bucket is small enough to fit in memory, this now works!
+\end{itemize}
+
+\subsection{Sort-Merge Join}
+There’s also times when it helps for us to sort R and S first, especially if we want our joined table to be sorted on some specific column. In this case, we:
+\begin{enumerate}
+    \item First sort R and S
+    \item Advance the pointer on whichever table has the smaller current value until the two pointers match.
+    \item When you find a match, mark that position in S, then keep advancing S to collect all records in S that match the R record.
+    \item Move to the next record in R, reset S back to the mark, and repeat. The mark saves you from having to re-scan all of S (since both tables are sorted, no future R record can match anything before the marked spot).
+\end{enumerate}
+
+Average case I/O:
+\[
+R + \text{cost to sort S} + [R] + [S]
+\]
+
+Worst case: when every record $R$ matches every record in $S$, the last term explodes to $|R| * [S]$, but this rarely happens in practice.
+
+\subsection{An Important Refinement}
+
+\textbf{Best Case:} If $runs(R) + runs(S) \leq B - 1$, you have enough buffer pages to allocate one page per run for both tables simultaneously. (A run is a sorted chunk of pages produced during a single pass of external merge sort.) Instead of writing the fully sorted tables back to disk and then reading them again for the join, you can just keep the set of runs in memory and join directly from there. This saves one read and write for $R$ and $S$, which is $2*([R] + [S])$ I/Os.
+
+\textbf{Case 2:} If that's not possible, fully sort the smaller table $(S)$ down to 1 run. Now only one buffer page is needed for $S$, so check if $runs(R) + 1 \leq B - 1.$ If yes, you can keep R's last runs in memory and join directly, saving 2 * [R] I/Os (avoiding the final write and read of R).
+
+\textbf{Case 3:} If that still doesn't work (R has too many runs even with S reduced to 1), fully sort the larger table (R) down to 1 run instead, and check if $runs(S) + 1 \leq B-1$. If yes we save $2*[S]$ I/Os.
+
+\section{Query Optimization}
+Databases don't actually execute queries in the order SQL implies (FROM → WHERE → SELECT); they reorder operations to improve performance. Query optimization is about finding the most efficient query plan. We want a sequence of relational algebra operations that produces the correct result while minimizing the number of I/Os. 
+
+
+\subsection{Iterator Interface}
+Every relational operator is implemented as a subclass of an \texttt{Iterator} class, each with a \texttt{next()} method. When a query is executed, we call \texttt{next()} on the root operator, which recursively calls \texttt{next()} down the tree until hitting a base table. 
+
+Streaming operators (select, project) use a small amount of work as they process one tuple at a time. Blocking operators like sort operations have to read every single tuple/row before they can output anything.
+
+\subsection{Selectivity Estimation}
+Since we can't know the exact cost of a query plan without running it, we use selectivity to estimate how much a condition filters down the data. Selectivity is the percentage of rows that make it through an operator. In these formulas, X and Y are columns in a table, and a is a constant value. 
+
+\textbf{Key formulas:}
+\begin{itemize}
+    \item $\texttt{X = a} \;\rightarrow\; \frac{1}{\text{unique values in } X}$
+    
+    \item $\texttt{X = Y} \;\rightarrow\; \frac{1}{\max(\text{unique values in } X,\ \text{unique values in } Y)}$
+    
+    \item $\texttt{X > a} \;\rightarrow\; \frac{\max(X) - a}{\max(X) - \min(X) + 1}$
+   
+    \item $\texttt{cond1 AND cond2} \;\rightarrow\; \text{selectivity(cond1)} \times \text{selectivity(cond2)}$
+\end{itemize}
+
+This matters because if a condition has low selectivity (filters out a lot of rows), we want to apply it as early as possible so that subsequent operators have fewer rows to deal with, reducing I/Os.
+
+\subsection{Selectivity of Joins}
+When joining tables A and B on a condition like \texttt{A.id = B.id}, the key ideas are:
+
+\textbf{Without a join condition:}, the result would be a full Cartesian product:
+
+\[
+|A| \times |B|
+\]
+
+tuples total.
+
+\textbf{With a join condition}, selectivity trims this down. The selectivity formula for an equality join (X = Y) is:
+
+\[
+\frac{1}{max(\text{unique values in X, unique values in Y})}
+\]
+
+so the estimated number of output tuples is:
+\[
+(|A| \times |B|) \times \text{selectivity}.
+\]
+
+To get the output size in pages, we divide the equation above by the estimated tuples per page:
+
+\[
+\frac{(|A| \times |B|) \times \text{selectivity}}{\text{tuples per page}}
+\]
+
+\subsection{Common Heuristics}
+
+There are way too many possible query plans for a reasonably complex query to analyze them all. We need some way to cut down the number of plans that we actually consider. For this reason, we will use a few shortcuts/heuristics:
+
+\begin{enumerate}
+    \item Push down projects ($\pi$) and selects ($\sigma$) as far as they can go
+    \item Only consider left deep plans
+    \item Do not consider cross joins unless they are the only option
+\end{enumerate}
+
+The first heuristic says to apply filters (selects) and column eliminations (projects) as early as possible. Selects reduce the number of rows, and projects make each row smaller so more fit on a page. Both mean less data for later operators to deal with. Just make sure you don't eliminate a column that's still needed later in the query.
+
+The second heuristic says that the right table must always be one of the original base tables from your query. Never a result from a previous join.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{images/second_heuristic.png}
+    \caption{The right side of the JOIN must always be an original table.}
+    \label{fig:placeholder}
+\end{figure}
+
+The third heuristic is beneficial because cross joins produce a ton of pages which makes the operators above the cross join perform many I/Os. We want to avoid that whenever possible.
+
+\subsection{Pass 1 of System R}
+
+Pass 1 determines the best way to access each individual table. There are two options for accessing a table:
+
+\begin{itemize}
+    \item Full Scan - reads every page of the table
+    \item Index Scan - uses an index to read only relevant pages
+\end{itemize}
+
+Both scans apply any single-table WHERE conditions (like \texttt{WHERE rating > 5}) while scanning, since we push down selects.
+
+\textbf{Which plans advance to Pass 2?}
+
+For each table, two types of plans move forward:
+\begin{enumerate}
+    \item The cheapest access plan (fewest I/Os)
+    \item Any plan that produces an interesting order. Meaning the output is sorted on a column used in an ORDER BY, GROUP BY, or a downstream JOIN
+\end{enumerate}
+
+A full scan never produces an interesting order since its output isn't sorted. An index scan produces output sorted on the indexed column, which may be an interesting order if that column is used later in the query.
+
+The reason interesting orders are kept even if they're not the cheapest is that they might allow a Sort Merge Join later in the query to skip sorting one of its inputs, potentially saving more I/Os overall.
+
+\section{Transactions \& Concurrency}
+
+\subsection{Introduction}
+
+When multiple users access a database at the same time, there are several problems we can run into:
+
+\begin{enumerate}
+    \item \textbf{Inconsistent Reads (Write-Read Conflict):} A user reads only part of what was updated.
+    \begin{itemize}
+        \item User 1 updates Table 1 and then updates Table 2.
+        \item User 2 reads Table 2 (which User 1 has not updated yet) and then Table 1 (which User 1 already updated), so it reads the database in an intermediate state.
+    \end{itemize}
+
+    \item \textbf{Lost Update (Write-Write Conflict):} Two users try to update the same record at the same time so one of the updates gets lost. For example:
+    \begin{itemize}
+        \item User 1 updates a toy's price to be price $\times$ 2.
+        \item User 2 updates a toy's price to be price $+ 5$, removing User 1's update.
+    \end{itemize}
+
+    \item \textbf{Dirty Reads (Write-Read Conflict):} One user reads an update that was never committed.
+    \begin{itemize}
+        \item User 1 updates a toy's price but this gets aborted.
+        \item User 2 reads the update before it was rolled back.
+    \end{itemize}
+
+    \item \textbf{Unrepeatable Reads (Read-Write Conflict):} A user reads two different values for the same record because another user updated the record in between the two reads.
+    \begin{itemize}
+        \item User 1 reads in toy price.
+        \item User 2 updates toy price to be toy price $\times$ 2 and commits.
+        \item User 1 reads in toy price again. User 1 reads two different values for toy price because User 2's write operation was interleaved. User 1 should be reading the same value within one transaction. As such, User 1 will have to abort.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Transactions}
+Our solutions to those problems is to define a set of rules and guarantees about operations. We will do this by using transactions.
+
+A transaction is a sequence of multiple actions that should be executed as a single, logical, atomic unit. Transactions guarantee the ACID properties to avoid the problems discussed above:
+\begin{itemize}
+    \item \textbf{Atomicity:} A transaction ends in two ways: it either commits or aborts. Atomicity means that either all actions in the Xact happen, or none happen.
+    
+    \item \textbf{Consistency:} If the DB starts out consistent, it ends up consistent at the end of the Xact.
+    
+    \item \textbf{Isolation:} Execution of each Xact is isolated from that of others. In reality, the DBMS will interleave actions of many Xacts and not execute each in order of one after the other. The DBMS will ensure that each Xact executes as if it ran by itself.
+    
+    \item \textbf{Durability:} If a Xact commits, its effects persist. The effects of a committed Xact must survive failures.
+\end{itemize}
+
+\subsection{Motivation for Concurrent Execution}
+
+Why Allow Concurrency At All? Concurrency is valuable because it:
+\begin{itemize}
+    \item Increases \textbf{throughput} (more transactions per second).
+    
+    \item Decreases \textbf{latency} (transactions don't have to wait for each other).
+\end{itemize}
+
+\subsection{Concurrency Control}
+The goal is to enforce the isolation property of transactions by analyzing transaction schedules (the ordered sequence of Begin, Read, Write, Commit, and Abort operations).
+
+The simplest approach is a serial schedule, where we run one transaction completely before starting the next. 
+
+For example, the following schedule is a serial schedule because $T1$'s operations run completely before $T2$ runs.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{images/serial_schedule.png}
+    \caption{Example of a serial schedule}
+    \label{fig:placeholder}
+\end{figure}
+
+The problem with these schedules, however, is that it is not efficient to wait for an entire transaction to finish before starting another one.
+
+We want to look for a schedule that is equivalent to a serial schedule. For schedules to be equivalent they must satisfy the following three rules:
+
+\begin{enumerate}
+    \item They involve the same transactions
+    
+    \item Operations are ordered the same way within the individual transactions
+    
+    \item They each leave the database in the same state
+\end{enumerate}
+
+If we find a schedule whose results are equivalent to a serial schedule, we call the schedule serializable. For example, the following schedule is serializable because it is equivalent to the schedule above.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{images/schedule_serializable.png}
+    \caption{Example of a serializable to the schedule above.}
+    \label{fig:placeholder}
+\end{figure}
+
+\subsection{Conflict Serializability}
+How do we ensure that two schedules leave the database in the same final state without running through the entire schedule to see what the result is? We can do this by looking for conflicting operations. For two operations to conflict they must satisfy the following three rules:
+
+\begin{enumerate}
+    \item The operations are from different transactions
+    \item Both operations operate on the same resource
+    \item At least one operation is a write
+\end{enumerate}
+
+If two schedules handle all their conflicting operations in the same order, they are guaranteed to leave the database in the same final state. This is called being conflict equivalent, which is a stricter condition than just being equivalent.
+
+This is useful because if we can show a schedule is conflict equivalent to a serial schedule, we know it's safe or conflict serializable.
+
+And importantly, conflict serializable always implies serializable, so we don't need to run through the whole schedule to verify correctness.
+
+\subsection{Conflict Dependency Graph}
+
+A dependency graph is a simple way to check if a schedule is conflict serializable without manually comparing it to every possible serial schedule.
+
+\textbf{Structure:}
+\begin{enumerate}
+    \item One node per transaction
+    \item Edge from $T_i$ to $T_j$ if:
+    \begin{itemize}
+        \item an operation $O_i$ of $T_i$ conflicts with an operation $O_j$ of $T_j$
+        \item $O_i$ appears earlier in the schedule than $O_j$
+    \end{itemize}
+\end{enumerate}
+
+The key rule: If the graph has no cycles, the schedule is conflict serializable. If there's a cycle, it's not.
+
+\textbf{Example 1: Conflict-serializable schedule:} The following schedule is conflict serializable and the conflict graph is acyclic. There are two conflicting operations:
+\begin{itemize}
+    \item $T_1$ reads $A$ and then $T_2$ writes to $A$. Because of this, there will be an edge from $T_1$ to $T_2$.
+    \item $T_1$ writes to $A$ and then $T_2$ reads from $A$. Since there already is an edge from $T_1$ to $T_2$, we don’t have to add the edge again.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{images/conflict_dependence_graph_1.png}
+    \caption{}
+    \label{fig:placeholder}
+\end{figure}
+
+
+\textbf{Example 2: Not conflict-serializable schedule}
+
+The following schedule is not conflict serializable and the conflict graph is not acyclic. Some conflicting operations:
+\begin{itemize}
+    \item $T_1$ reads $A$ and then $T_2$ writes to $A$. Because of this, there will be an edge from $T_1$ to $T_2$.
+    \item $T_2$ writes to $B$ and then $T_1$ reads $B$. Because of this, there will be an edge from $T_2$ to $T_1$.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{images/conflict_dependence_graph_1.png}
+    \caption{}
+    \label{fig:placeholder}
+\end{figure}
 
 
 \end{document}
